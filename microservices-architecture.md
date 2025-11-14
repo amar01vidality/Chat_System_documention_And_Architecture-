@@ -1,628 +1,315 @@
-# Microservices Architecture & Service Mesh Implementation
+# Architecture Quick Reference Guide
 
-## 🏗️ Microservices Architecture Design
+## System Overview
 
-### Service Decomposition Strategy
+**Platform**: AI-Powered Trading & Chat Platform  
+**Architecture**: Microservices, Event-Driven, Multi-Region  
+**Scale**: Enterprise-grade, millions of users
 
-```mermaid
-graph TB
-    subgraph "Business Capabilities"
-        subgraph "User Management Domain"
-            USER_SVC[User Service<br/>User Registration/Profile]
-            AUTH_SVC[Authentication Service<br/>OAuth 2.0 + JWT]
-            IDENTITY_SVC[Identity Service<br/>KYC + Verification]
-        end
-        
-        subgraph "Communication Domain"
-            CHAT_SVC[Chat Service<br/>Real-time Messaging]
-            ROOM_SVC[Room Service<br/>Chat Room Management]
-            COLLAB_SVC[Collaboration Service<br/>Shared Workspaces]
-        end
-        
-        subgraph "AI/ML Domain"
-            AI_SVC[AI Service<br/>Model Inference]
-            ML_SVC[ML Service<br/>Model Training]
-            NLP_SVC[NLP Service<br/>Text Processing]
-            VISION_SVC[Vision Service<br/>Image Analysis]
-        end
-        
-        subgraph "Trading Domain"
-            MARKET_SVC[Market Service<br/>Data Ingestion]
-            ANALYSIS_SVC[Analysis Service<br/>Technical Analysis]
-            PORTFOLIO_SVC[Portfolio Service<br/>Portfolio Management]
-            ALERT_SVC[Alert Service<br/>Notification Engine]
-        end
-        
-        subgraph "Content Domain"
-            FILE_SVC[File Service<br/>Document Processing]
-            MEDIA_SVC[Media Service<br/>Image/Video Processing]
-            SEARCH_SVC[Search Service<br/>Elasticsearch]
-            RECOMMEND_SVC[Recommendation Service<br/>ML Recommendations]
-        end
-        
-        subgraph "Support Domain"
-            NOTIFICATION_SVC[Notification Service<br/>Multi-channel]
-            ANALYTICS_SVC[Analytics Service<br/>User Analytics]
-            BILLING_SVC[Billing Service<br/>Subscription Mgmt]
-            SUPPORT_SVC[Support Service<br/>Help Desk]
-        end
-    end
-```
-
-## 🔗 Service Mesh Architecture (Istio)
-
-### Istio Control Plane
-
-```mermaid
-graph TB
-    subgraph "Istio Control Plane"
-        ISTIOD[Istiod<br/>Control Plane Service]
-        GALLEY[Galley<br/>Configuration Validation]
-        PILOT[Pilot<br/>Service Discovery]
-        CITADEL[Citadel<br/>Certificate Authority]
-        MIXER[Mixer<br/>Policy + Telemetry]
-    end
-    
-    subgraph "Istio Data Plane"
-        ENVOY_SIDECAR[Envoy Proxy<br/>Sidecar Container]
-        ENVOY_GW[Envoy Gateway<br/>Ingress/Egress]
-        ENVOY_EGRESS[Envoy Egress<br/>External Traffic]
-    end
-    
-    subgraph "Service Communication Patterns"
-        subgraph "East-West Traffic"
-            SERVICE_A[Service A]
-            SERVICE_B[Service B]
-            SERVICE_C[Service C]
-        end
-        
-        subgraph "North-South Traffic"
-            INGRESS[Ingress Gateway]
-            EGRESS[Egress Gateway]
-            EXTERNAL[External Services]
-        end
-    end
-    
-    subgraph "Istio Features"
-        TRAFFIC_MGMT[Traffic Management<br/>Routing, Load Balancing]
-        SECURITY[Security<br/>mTLS, Authorization]
-        OBSERVABILITY[Observability<br/>Metrics, Traces, Logs]
-        POLICY[Policy Enforcement<br/>Rate Limiting, ACLs]
-    end
-```
-
-## 📋 Service Specifications
-
-### 1. User Service
-```yaml
-# user-service-deployment.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: user-service
-  namespace: trading-platform
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: user-service
-  template:
-    metadata:
-      labels:
-        app: user-service
-        version: v1.2.0
-      annotations:
-        sidecar.istio.io/inject: "true"
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "8080"
-    spec:
-      containers:
-      - name: user-service
-        image: trading-platform/user-service:v1.2.0
-        ports:
-        - containerPort: 8080
-          name: http
-        - containerPort: 8081
-          name: health
-        env:
-        - name: DATABASE_URL
-          valueFrom:
-            secretKeyRef:
-              name: user-db-secret
-              key: connection-string
-        - name: JWT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: jwt-secret
-              key: secret
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "250m"
-          limits:
-            memory: "1Gi"
-            cpu: "500m"
-        livenessProbe:
-          httpGet:
-            path: /health/live
-            port: 8081
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /health/ready
-            port: 8081
-          initialDelaySeconds: 5
-          periodSeconds: 5
-```
-
-### 2. Service Mesh Configuration
-```yaml
-# virtual-service.yaml
-apiVersion: networking.istio.io/v1beta1
-kind: VirtualService
-metadata:
-  name: user-service
-  namespace: trading-platform
-spec:
-  hosts:
-  - user-service
-  http:
-  - match:
-    - headers:
-        version:
-          exact: v2
-    route:
-    - destination:
-        host: user-service
-        subset: v2
-      weight: 100
-  - route:
-    - destination:
-        host: user-service
-        subset: v1
-      weight: 90
-    - destination:
-        host: user-service
-        subset: v2
-      weight: 10
-    timeout: 30s
-    retries:
-      attempts: 3
-      perTryTimeout: 10s
-      retryOn: 5xx,reset,connect-failure,refused-stream
 ---
-apiVersion: networking.istio.io/v1beta1
-kind: DestinationRule
-metadata:
-  name: user-service
-  namespace: trading-platform
-spec:
-  host: user-service
-  trafficPolicy:
-    connectionPool:
-      tcp:
-        maxConnections: 100
-      http:
-        http1MaxPendingRequests: 50
-        http2MaxRequests: 100
-    loadBalancer:
-      simple: LEAST_CONN
-    outlierDetection:
-      consecutiveErrors: 5
-      interval: 30s
-      baseEjectionTime: 30s
-      maxEjectionPercent: 50
-      minHealthPercent: 30
-  subsets:
-  - name: v1
-    labels:
-      version: v1.2.0
-  - name: v2
-    labels:
-      version: v2.0.0
-```
 
-### 3. Security Configuration
-```yaml
-# peer-authentication.yaml
-apiVersion: security.istio.io/v1beta1
-kind: PeerAuthentication
-metadata:
-  name: default
-  namespace: trading-platform
-spec:
-  mtls:
-    mode: STRICT
+## Service Catalog
+
+| Service | Port | Technology | Primary DB | Key Features |
+|---------|------|------------|------------|--------------|
+| Auth/User | 3001 | Node.js + Fastify | PostgreSQL + Redis | JWT, OAuth, RBAC, MFA |
+| Chat | 3003 | Node.js + WebSocket | MongoDB + Redis | Real-time messaging, multi-user rooms |
+| Discussion Hub | 3004 | Node.js | MongoDB + Elasticsearch | Threaded discussions, reputation |
+| Chart & Analysis | 3005 | Node.js + Python | TimescaleDB + S3 | Technical indicators, chart generation |
+| Alerts | 3006 | Node.js | PostgreSQL + Redis | Custom alerts, multi-channel notifications |
+| AI/ML | 3007 | Python + Node.js | Vector DB + PostgreSQL | LLM inference, RAG, multiple modes |
+| Memory/Vector | 3008 | Python | Vector DB + PostgreSQL | Embeddings, semantic search |
+| Worker | 3009 | Node.js/Python | Various | Background jobs, embeddings, backtesting |
+| Audit | 3010 | Node.js | Elasticsearch + PostgreSQL | Audit logs, security events |
+
 ---
-apiVersion: security.istio.io/v1beta1
-kind: AuthorizationPolicy
-metadata:
-  name: user-service-authz
-  namespace: trading-platform
-spec:
-  selector:
-    matchLabels:
-      app: user-service
-  rules:
-  - from:
-    - source:
-        principals: ["cluster.local/ns/trading-platform/sa/api-gateway"]
-    - source:
-        principals: ["cluster.local/ns/trading-platform/sa/chat-service"]
-  - when:
-    - key: request.headers[x-user-role]
-      values: ["admin", "user"]
-  - to:
-    - operation:
-        methods: ["GET", "POST", "PUT"]
-        paths: ["/api/v1/users/*"]
-```
 
-## 🚀 Service Communication Patterns
+## Database Strategy
 
-### Synchronous Communication (gRPC)
-```protobuf
-// user-service.proto
-syntax = "proto3";
+| Database | Use Case | Scaling | Backup |
+|----------|----------|---------|--------|
+| PostgreSQL | Users, auth, metadata | Read replicas, partitioning | Daily full, hourly incremental |
+| MongoDB | Chat messages, discussions | Sharding, replica sets | Oplog replication |
+| Redis | Cache, sessions, pub/sub | Redis Cluster | RDB + AOF |
+| TimescaleDB | Market data, time-series | Hypertables, compression | Continuous WAL |
+| Vector DB | Embeddings, RAG | Distributed cluster | Snapshot backups |
+| Elasticsearch | Search, logs | Sharding, replicas | Index rotation |
+| S3/MinIO | Files, charts, backups | Automatic | Versioning, cross-region |
 
-package trading.platform.user;
-
-service UserService {
-  rpc GetUser(GetUserRequest) returns (GetUserResponse);
-  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
-  rpc UpdateUser(UpdateUserRequest) returns (UpdateUserResponse);
-  rpc DeleteUser(DeleteUserRequest) returns (DeleteUserResponse);
-  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
-  rpc AuthenticateUser(AuthRequest) returns (AuthResponse);
-}
-
-message GetUserRequest {
-  string user_id = 1;
-  repeated string fields = 2;
-}
-
-message GetUserResponse {
-  User user = 1;
-  ResponseMetadata metadata = 2;
-}
-
-message User {
-  string user_id = 1;
-  string email = 2;
-  string username = 3;
-  string first_name = 4;
-  string last_name = 5;
-  UserProfile profile = 6;
-  UserPreferences preferences = 7;
-  google.protobuf.Timestamp created_at = 8;
-  google.protobuf.Timestamp updated_at = 9;
-}
-
-message ResponseMetadata {
-  string request_id = 1;
-  google.protobuf.Timestamp timestamp = 2;
-  int32 status_code = 3;
-  map<string, string> headers = 4;
-}
-```
-
-### Asynchronous Communication (Kafka)
-```yaml
-# kafka-topics.yaml
-apiVersion: kafka.strimzi.io/v1beta2
-kind: KafkaTopic
-metadata:
-  name: user-events
-  namespace: kafka
-  labels:
-    strimzi.io/cluster: trading-platform-kafka
-spec:
-  partitions: 10
-  replicas: 3
-  config:
-    retention.ms: 604800000  # 7 days
-    segment.bytes: 1073741824  # 1GB
 ---
-apiVersion: kafka.strimzi.io/v1beta2
-kind: KafkaTopic
-metadata:
-  name: trading-events
-  namespace: kafka
-  labels:
-    strimzi.io/cluster: trading-platform-kafka
-spec:
-  partitions: 15
-  replicas: 3
-  config:
-    retention.ms: 259200000  # 3 days
-    segment.bytes: 536870912  # 512MB
+
+## Technology Stack
+
+### Backend
+- **Runtime**: Node.js (Fastify), Python (FastAPI)
+- **Communication**: gRPC, WebSocket, REST
+- **Message Queue**: Apache Kafka, Redis Pub/Sub
+
+### Frontend
+- **Web**: React/Vue.js
+- **Mobile**: React Native/Flutter
+- **Desktop**: Electron (optional)
+
+### Infrastructure
+- **Containers**: Docker
+- **Orchestration**: Kubernetes
+- **CI/CD**: GitHub Actions/Jenkins
+- **IaC**: Terraform, Helm
+
+### Monitoring
+- **Metrics**: Prometheus
+- **Visualization**: Grafana
+- **Tracing**: Jaeger
+- **Logging**: ELK Stack (Elasticsearch, Logstash, Kibana)
+
+### Security
+- **WAF**: CloudFlare/AWS WAF
+- **CDN**: CloudFlare/AWS CloudFront
+- **Secrets**: Vault/AWS Secrets Manager
+- **Encryption**: TLS 1.3, AES-256
+
 ---
-apiVersion: kafka.strimzi.io/v1beta2
-kind: KafkaTopic
-metadata:
-  name: ai-events
-  namespace: kafka
-  labels:
-    strimzi.io/cluster: trading-platform-kafka
-spec:
-  partitions: 8
-  replicas: 3
-  config:
-    retention.ms: 86400000  # 1 day
-    segment.bytes: 268435456  # 256MB
-```
 
-## 📊 Observability & Monitoring
+## AI Modes & Characteristics
 
-### Distributed Tracing Configuration
-```yaml
-# istio-telemetry.yaml
-apiVersion: telemetry.istio.io/v1alpha1
-kind: Telemetry
-metadata:
-  name: distributed-tracing
-  namespace: trading-platform
-spec:
-  tracing:
-  - providers:
-    - name: jaeger
-    randomSamplingPercentage: 1.0
-    customTags:
-      environment:
-        literal:
-          value: "production"
-      service:
-        header:
-          name: x-service-name
-  metrics:
-  - providers:
-    - name: prometheus
-    overrides:
-    - match:
-        metric: ALL_METRICS
-      tagOverrides:
-        destination_service_name:
-          operation: UPSERT
-          value: destination.service.name
-        request_protocol:
-          operation: UPSERT
-          value: request.protocol
-  accessLogging:
-  - providers:
-    - name: otel
-```
+| Mode | Latency | Model Size | Use Case | Cost |
+|------|---------|------------|----------|------|
+| Fast | < 200ms | 7B params | Quick questions | Low |
+| Deep Thinking | < 5s | 70B+ params | Complex reasoning | High |
+| Trade Buddy | < 1s | Fine-tuned | Emotional support | Medium |
+| Stock Analysis | < 3s | Multi-model | Technical/fundamental | High |
+| Web Search | < 10s | LLM + Crawler | Real-time research | Medium |
+| Learn | < 2s | Fine-tuned | Tutoring | Medium |
+| Normal Search | < 500ms | Lightweight | Quick lookup | Low |
 
-### Service Metrics (Prometheus)
-```yaml
-# service-monitor.yaml
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: user-service-monitor
-  namespace: trading-platform
-spec:
-  selector:
-    matchLabels:
-      app: user-service
-  endpoints:
-  - port: metrics
-    interval: 30s
-    path: /metrics
-    honorLabels: true
-  namespaceSelector:
-    matchNames:
-    - trading-platform
-```
+---
 
-### Custom Metrics (Application Level)
-```go
-// user-service/metrics.go
-package metrics
+## Scaling Strategies
 
-import (
-    "github.com/prometheus/client_golang/prometheus"
-    "github.com/prometheus/client_golang/prometheus/promauto"
-)
+### Horizontal Scaling
+- **Stateless Services**: Auto-scale based on CPU/memory
+- **Stateful Services**: Read replicas, sharding
+- **Kubernetes HPA**: Automatic pod scaling
+- **Cluster Autoscaler**: Node-level scaling
 
-var (
-    UserRegistrationTotal = promauto.NewCounterVec(
-        prometheus.CounterOpts{
-            Name: "user_registration_total",
-            Help: "Total number of user registrations",
-        },
-        []string{"status", "source"},
-    )
-    
-    UserLoginAttempts = promauto.NewCounterVec(
-        prometheus.CounterOpts{
-            Name: "user_login_attempts_total",
-            Help: "Total number of login attempts",
-        },
-        []string{"status", "method"},
-    )
-    
-    UserProfileUpdates = promauto.NewHistogramVec(
-        prometheus.HistogramOpts{
-            Name: "user_profile_update_duration_seconds",
-            Help: "Duration of user profile updates",
-            Buckets: prometheus.DefBuckets,
-        },
-        []string{"success"},
-    )
-    
-    ActiveUsers = promauto.NewGauge(
-        prometheus.GaugeOpts{
-            Name: "active_users_current",
-            Help: "Current number of active users",
-        },
-    )
-)
-```
+### Performance Optimization
+- **Caching**: Redis (L2), In-memory (L1), CDN (L3)
+- **Database**: Connection pooling, read replicas, indexing
+- **API**: Compression, pagination, field selection
+- **CDN**: Static assets, chart images
 
-## 🔐 Security Patterns
+---
 
-### mTLS Configuration
-```yaml
-# destination-rule-mtls.yaml
-apiVersion: networking.istio.io/v1beta1
-kind: DestinationRule
-metadata:
-  name: mtls-services
-  namespace: trading-platform
-spec:
-  host: "*.trading-platform.svc.cluster.local"
-  trafficPolicy:
-    tls:
-      mode: ISTIO_MUTUAL
-    connectionPool:
-      tcp:
-        maxConnections: 100
-      http:
-        http1MaxPendingRequests: 50
-        http2MaxRequests: 100
-        maxRequestsPerConnection: 2
-    loadBalancer:
-      simple: ROUND_ROBIN
-      consistentHash:
-        httpHeaderName: "x-user-id"
-        minimumRingSize: 1024
-```
+## Security Layers
 
-### Circuit Breaker Pattern
-```yaml
-# circuit-breaker.yaml
-apiVersion: networking.istio.io/v1beta1
-kind: DestinationRule
-metadata:
-  name: circuit-breaker
-  namespace: trading-platform
-spec:
-  host: ai-service
-  trafficPolicy:
-    outlierDetection:
-      consecutiveErrors: 5
-      interval: 30s
-      baseEjectionTime: 30s
-      maxEjectionPercent: 50
-      minHealthPercent: 30
-      splitExternalLocalOriginErrors: true
-      consecutiveLocalOriginFailures: 3
-    connectionPool:
-      tcp:
-        maxConnections: 10
-        connectTimeout: 30s
-        tcpKeepalive:
-          time: 60s
-          interval: 30s
-      http:
-        http1MaxPendingRequests: 20
-        http2MaxRequests: 50
-        maxRequestsPerConnection: 1
-        maxRetries: 3
-        consecutiveGatewayErrors: 3
-        useClientProtocol: true
-```
+1. **Edge**: DDoS protection, WAF, rate limiting
+2. **Network**: VPC isolation, firewall, VPN
+3. **Application**: TLS, JWT, input validation
+4. **Data**: Encryption at rest/transit, RBAC
+5. **Monitoring**: SIEM, audit logs, vulnerability scanning
 
-## 📈 Performance Optimization
+---
 
-### Load Balancing Strategies
-```yaml
-# load-balancing.yaml
-apiVersion: networking.istio.io/v1beta1
-kind: DestinationRule
-metadata:
-  name: load-balancing
-  namespace: trading-platform
-spec:
-  host: trading-service
-  trafficPolicy:
-    loadBalancer:
-      simple: LEAST_CONN
-      consistentHash:
-        httpCookie:
-          name: "session-cookie"
-          ttl: 3600s
-          path: /
-        minimumRingSize: 1024
-    connectionPool:
-      tcp:
-        maxConnections: 1000
-      http:
-        http1MaxPendingRequests: 200
-        http2MaxRequests: 1000
-        maxRequestsPerConnection: 10
-        h2UpgradePolicy: UPGRADE
-        useClientProtocol: true
-```
+## Deployment Architecture
 
-### Rate Limiting
-```yaml
-# rate-limit.yaml
-apiVersion: networking.istio.io/v1alpha3
-kind: EnvoyFilter
-metadata:
-  name: rate-limit-filter
-  namespace: trading-platform
-spec:
-  configPatches:
-  - applyTo: HTTP_FILTER
-    match:
-      context: SIDECAR_INBOUND
-      listener:
-        filterChain:
-          filter:
-            name: "envoy.filters.network.http_connection_manager"
-    patch:
-      operation: INSERT_BEFORE
-      value:
-        name: envoy.filters.http.local_ratelimit
-        typed_config:
-          "@type": type.googleapis.com/udpa.type.v1.TypedStruct
-          type_url: type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
-          value:
-            stat_prefix: rate_limit
-            token_bucket:
-              max_tokens: 100
-              tokens_per_fill: 100
-              fill_interval: 60s
-            filter_enabled:
-              runtime_key: rate_limit_enabled
-              default_value: true
-            filter_enforced:
-              runtime_key: rate_limit_enforced
-              default_value: true
-            response_headers_to_add:
-            - append: false
-              header:
-                key: x-rate-limit
-                value: '100'
-```
+### Regions
+- **US**: Primary region
+- **EU**: Secondary region
+- **Asia**: Tertiary region
 
-## 🎯 Service Mesh Benefits
+### Availability Zones
+- **Multi-AZ**: All critical services
+- **Auto-failover**: Database replication
+- **Health Checks**: Liveness and readiness probes
 
-### 1. **Traffic Management**
-- **Intelligent Routing**: A/B testing, canary deployments
-- **Load Balancing**: Advanced algorithms, session affinity
-- **Circuit Breaking**: Automatic failure detection and recovery
-- **Timeouts & Retries**: Configurable retry policies
+### CI/CD Pipeline
+1. Code commit → CI (tests, build)
+2. Container registry → CD (deploy)
+3. Staging → Production (blue-green/rolling)
 
-### 2. **Security**
-- **mTLS**: Automatic service-to-service encryption
-- **Authorization**: Fine-grained access control
-- **Authentication**: Service identity verification
-- **Policy Enforcement**: Declarative security policies
+---
 
-### 3. **Observability**
-- **Distributed Tracing**: End-to-end request tracking
-- **Metrics Collection**: Automatic service metrics
-- **Access Logging**: Detailed traffic logs
-- **Performance Monitoring**: Latency, error rates, throughput
+## Monitoring Metrics
 
-### 4. **Operational Excellence**
-- **Zero-downtime Deployments**: Blue-green, canary
-- **Fault Injection**: Chaos engineering capabilities
-- **Multi-protocol Support**: HTTP, gRPC, TCP, WebSocket
-- **Extensibility**: Custom filters and plugins
+### Application Metrics
+- Request rate (RPS)
+- Error rate (%)
+- Response time (p50, p95, p99)
+- Active users
+- Chat messages/sec
 
-This microservices architecture with Istio service mesh provides a robust, scalable, and secure foundation for your AI-powered trading platform, enabling independent service deployment, advanced traffic management, and comprehensive observability.
+### Infrastructure Metrics
+- CPU usage (%)
+- Memory usage (%)
+- Disk I/O
+- Network throughput
+- Database connections
+
+### Business Metrics
+- Daily active users (DAU)
+- AI queries per user
+- Trading alerts triggered
+- Chat room participation
+- Premium conversions
+
+---
+
+## Alert Thresholds
+
+| Metric | Warning | Critical |
+|--------|---------|----------|
+| Error Rate | > 0.5% | > 1% |
+| Response Time (p95) | > 500ms | > 1s |
+| CPU Usage | > 70% | > 90% |
+| Memory Usage | > 80% | > 90% |
+| DB Connections | > 70% | > 80% |
+| Cache Hit Rate | < 85% | < 70% |
+
+---
+
+## Disaster Recovery
+
+- **RTO**: < 4 hours (Recovery Time Objective)
+- **RPO**: < 1 hour (Recovery Point Objective)
+- **Backups**: Daily full, hourly incremental
+- **Testing**: Quarterly DR drills
+- **Multi-Region**: Cross-region replication
+
+---
+
+## Cost Optimization
+
+### Infrastructure
+- Spot instances for non-critical workloads
+- Auto-scaling to match demand
+- Reserved instances for predictable load
+- Tiered storage (hot/warm/cold)
+
+### AI/ML
+- Route simple queries to lightweight models
+- Cache common responses
+- Batch processing for embeddings
+- Use local LLMs when possible
+
+---
+
+## Key Performance Indicators (KPIs)
+
+### Availability
+- **Target**: 99.9% uptime (8.76 hours downtime/year)
+- **Monitoring**: External uptime checks
+- **SLA**: Defined per service tier
+
+### Performance
+- **Chat Latency**: < 100ms (p95)
+- **AI Response**: < 500ms (Fast Mode), < 5s (Deep Thinking)
+- **API Response**: < 200ms (p95)
+
+### Scalability
+- **Concurrent Users**: 10,000+ per region
+- **Messages/sec**: 50,000+
+- **AI Queries/sec**: 5,000+
+
+---
+
+## API Endpoints (Key)
+
+### Authentication
+- `POST /api/auth/login` - User login
+- `POST /api/auth/register` - User registration
+- `POST /api/auth/refresh` - Refresh token
+- `POST /api/auth/logout` - Logout
+
+### Chat
+- `WS /api/chat/connect` - WebSocket connection
+- `POST /api/chat/message` - Send message
+- `GET /api/chat/history` - Get chat history
+- `POST /api/chat/room` - Create room
+
+### AI
+- `POST /api/ai/chat` - AI chat request
+- `POST /api/ai/analyze` - Stock analysis
+- `POST /api/ai/search` - Web search
+- `POST /api/ai/mode` - Switch AI mode
+
+### Charts
+- `GET /api/charts/{symbol}` - Get chart data
+- `POST /api/charts/generate` - Generate chart
+- `GET /api/charts/indicators` - Get indicators
+
+---
+
+## Network Ports
+
+| Service | Port | Protocol | Purpose |
+|---------|------|----------|---------|
+| API Gateway | 443 | HTTPS | External API |
+| Auth Service | 3001 | gRPC/REST | Authentication |
+| Chat Service | 3003 | WebSocket/gRPC | Real-time chat |
+| AI Service | 3007 | gRPC/REST | AI inference |
+| PostgreSQL | 5432 | TCP | Database |
+| MongoDB | 27017 | TCP | Document store |
+| Redis | 6379 | TCP | Cache |
+| Kafka | 9092 | TCP | Message queue |
+| Prometheus | 9090 | HTTP | Metrics |
+| Grafana | 3000 | HTTP | Dashboards |
+
+---
+
+## Data Retention Policies
+
+| Data Type | Retention | Archive |
+|-----------|-----------|---------|
+| Chat Messages | 1 year | S3 (7 years) |
+| Market Data | 10 years | S3 (permanent) |
+| User Data | Account lifetime | S3 (7 years after deletion) |
+| Audit Logs | 2 years | S3 (7 years) |
+| Application Logs | 30 days | S3 (1 year) |
+| Metrics | 15 days | S3 (1 year) |
+
+---
+
+## Compliance & Regulations
+
+- **SOC 2**: Security and availability controls
+- **GDPR**: Data privacy and user rights
+- **Financial Regulations**: Trading platform compliance
+- **PCI DSS**: If handling payments (future)
+
+---
+
+## Quick Troubleshooting
+
+### High Error Rate
+1. Check application logs
+2. Review database connections
+3. Verify service health
+4. Check external dependencies
+
+### Slow Response Times
+1. Check cache hit rates
+2. Review database query performance
+3. Verify network latency
+4. Check service resource usage
+
+### Database Issues
+1. Check connection pool usage
+2. Review slow query logs
+3. Verify replication lag
+4. Check disk space
+
+### AI Service Issues
+1. Check LLM API status
+2. Review queue depth
+3. Verify GPU availability
+4. Check model serving health
+
+---
+
+## Contact & Resources
+
+- **Architecture Diagrams**: `ARCHITECTURE_DIAGRAMS.md`
+- **Deep Analysis**: `ARCHITECTURE_ANALYSIS.md`
+- **Requirements**: `AI.txt`
+
+---
